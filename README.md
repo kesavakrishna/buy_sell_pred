@@ -43,35 +43,45 @@ We test whether this contrarian principle works in crypto markets by:
 
 ## ✨ Features
 
-### Current (Days 1-2) ✅
+### Current (Days 1-6) ✅
 - ✅ Fetch real-time Fear & Greed Index data
 - ✅ Retrieve Bitcoin historical prices from CoinGecko
 - ✅ Combine sentiment and price data by date
 - ✅ Visualize correlation with dual y-axis charts
-- ✅ Identify potential trading signals
-- ✅ Export data to CSV for analysis
+- ✅ Generate trading signals with threshold-based rules
+- ✅ Backtest strategies with $10,000 starting capital
+- ✅ Optimize thresholds (tested 9 combinations)
+- ✅ Enhanced strategy with tiered position sizing
+- ✅ Export data and visualizations to files
 
-### Coming Soon (Days 3-5) 🚧
-- 🚧 Generate buy/sell signals automatically
-- 🚧 Backtest strategy with historical data
-- 🚧 Calculate performance metrics (ROI, Sharpe ratio, drawdown)
-- 🚧 Optimize threshold parameters
-- 🚧 Compare against buy-and-hold strategy
-- 🚧 Risk management implementation
+### Completed (Days 3-6) ✅
+- ✅ Generate buy/sell signals automatically
+- ✅ Backtest strategy with historical data
+- ✅ Calculate performance metrics (ROI, win rate, outperformance)
+- ✅ Optimize threshold parameters (9 combinations tested)
+- ✅ Compare against buy-and-hold strategy
+- ✅ Enhanced strategy with position sizing
+
+### Future Enhancements 🚧
+- 🚧 Risk management (stop-loss, take-profit)
+- 🚧 Real-time monitoring and alerts
+- 🚧 Multi-asset support (ETH, BNB, SOL)
 
 ---
 
 ## 📊 Project Status
 
-**Current Progress:** Day 2 of 5 Complete
+**Current Progress:** Day 6 of 6 Complete ✅
 
 | Day | Task | Status | Completion Date |
 |-----|------|--------|----------------|
 | Day 1 | Environment Setup & Fear & Greed API | ✅ Complete | Nov 2, 2025 |
 | Day 2 | Bitcoin Historical Data & Visualization | ✅ Complete | Nov 2, 2025 |
-| Day 3 | Trading Signal Generation | 🚧 Pending | - |
-| Day 4 | Backtesting Engine | 🚧 Pending | - |
-| Day 5 | Analysis & Documentation | 🚧 Pending | - |
+| Day 3 | Trading Signal Generation | ✅ Complete | Nov 8, 2025 |
+| Day 4 | Backtesting Engine | ✅ Complete | Nov 8, 2025 |
+| Day 5 | Threshold Optimization & Analysis | ✅ Complete | Nov 8, 2025 |
+| Day 6 | Enhanced Strategy with Position Sizing | ✅ Complete | Nov 8, 2025 |
+| Day 7 | Daily Tracking Script | 📝 Noted for future | - |
 
 For detailed achievements, see [claude.md](claude.md).
 
@@ -137,14 +147,11 @@ trade/
 ├── venv/                          # Virtual environment (not in git)
 ├── scratchpad/                    # Learning implementations
 │   ├── day1/                      # Day 1: Fear & Greed fetching
-│   │   ├── day1_fear_greed.py     # Simple F&G fetcher
-│   │   ├── fear_greed_data.csv    # Output data
-│   │   └── README.md              # Day 1 notes
-│   └── day2/                      # Day 2: Bitcoin data
-│       ├── day2_bitcoin_prices.py # Bitcoin + F&G combiner
-│       ├── combined_data.csv      # Combined dataset
-│       ├── bitcoin_fear_greed_plot.png  # Visualization
-│       └── README.md              # Day 2 notes
+│   ├── day2/                      # Day 2: Bitcoin data + visualization
+│   ├── day3/                      # Day 3: Signal generation
+│   ├── day4/                      # Day 4: Backtesting
+│   ├── day5/                      # Day 5: Threshold optimization
+│   └── day6/                      # Day 6: Enhanced position sizing strategy
 ├── src/                           # Production code (coming soon)
 │   ├── data/                      # Data fetching modules
 │   ├── analysis/                  # Signal generation
@@ -223,11 +230,12 @@ Based on 30 days of October 2025 data:
 | **Data Period** | Oct 4 - Nov 2, 2025 (31 days) |
 | **Bitcoin Range** | $106,443 - $124,773 (16.9% swing) |
 | **F&G Range** | 22 (Extreme Fear) - 74 (Greed) |
-| **Buy Signals Found** | 5 instances |
-| **Sell Signals Found** | 0 instances |
-| **Strategy Return** | +2.15% |
+| **Buy Signals Found** | 4 instances (F&G ≤ 25) |
+| **Sell Signals Found** | 0 instances (F&G ≥ 75) |
+| **Original Strategy Return** | -0.04% |
+| **Enhanced Strategy Return** | **+0.11%** (only positive return!) |
 | **Buy & Hold Return** | -9.36% |
-| **Outperformance** | +11.51 percentage points ✅ |
+| **Enhanced vs Buy & Hold** | **+9.47 percentage points ✅** |
 
 ### Key Insights
 
@@ -496,8 +504,8 @@ This project is open source and available under the [MIT License](LICENSE).
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 **Started:** November 2, 2025
-**Current Phase:** Day 2 Complete
-**Next Milestone:** Day 3 Signal Generation
+**Completed:** November 8, 2025
+**Status:** 6-Day Project Complete ✅
 
 ---
 

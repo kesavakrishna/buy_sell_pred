@@ -1,22 +1,54 @@
 # Crypto Trading Signal Tracker - Project Context
 
 ## Project Overview
-A 5-day learning project to build a crypto trading signal tracker using the Fear & Greed Index and Bitcoin price data. This project emphasizes learning algorithmic trading concepts through hands-on implementation.
+A 6-day learning project (originally planned as 5 days, extended with Day 6 enhancement) to build a crypto trading signal tracker using the Fear & Greed Index and Bitcoin price data. This project emphasizes learning algorithmic trading concepts through hands-on implementation.
 
 ## Current Status
 - **Day 1**: ✅ Complete - Environment setup, Fear & Greed Index data fetching
 - **Day 2**: ✅ Complete - Bitcoin historical prices, data combination, visualization
-- **Day 3**: Pending - Signal generation
-- **Day 4**: Pending - Backtesting
-- **Day 5**: Pending - Analysis and documentation
+- **Day 3**: ✅ Complete - Signal generation with threshold-based rules
+- **Day 4**: ✅ Complete - Backtesting with $10,000 starting capital
+- **Day 5**: ✅ Complete - Threshold optimization (9 combinations tested)
+- **Day 6**: ✅ Complete - Enhanced strategy with position sizing
+- **Day 7**: 📝 Noted for future - Daily tracking script (deferred until project matures)
 
-### Day 2 Achievements
+### Project Achievements Summary
+
+**Day 1-2: Data Pipeline**
 - Successfully fetched 31 days of Bitcoin historical prices from CoinGecko API
 - Retrieved 30 days of Fear & Greed Index historical data
 - Combined both datasets by date (31 matching rows)
 - Created dual y-axis visualization showing price vs sentiment correlation
-- Identified several potential buy signals (F&G < 25) during Oct 2025 price dip
 - Output: `scratchpad/day2/combined_data.csv` and visualization plot
+
+**Day 3: Signal Generation**
+- Implemented threshold-based trading rules (Buy F&G ≤ 25, Sell F&G ≥ 75)
+- Fixed critical bug: Changed `<` to `<=` for inclusive thresholds
+- Found 4 BUY signals in October 2025 corrective period
+- Generated signals_data.csv with signal strength indicators
+- Hypothetical performance: +2.18% avg return on fear signals
+
+**Day 4: Backtesting**
+- Built SimpleBacktester class with all-in position sizing
+- Simulated trading with $10,000 starting capital
+- Result: -0.04% return BUT beat buy-and-hold by +9.32pp
+- Buy-and-hold lost -9.36% in same period
+- Key finding: Only 1 BUY executed (Oct 12), no SELL signals (F&G never reached 75)
+
+**Day 5: Threshold Optimization**
+- Tested 9 threshold combinations (buy: 20/25/30, sell: 65/70/75)
+- ALL 9 strategies beat buy-and-hold (+7.24pp to +9.36pp)
+- Best active strategy: Buy ≤ 25, Sell ≥ 75 (-0.04%, +9.32pp vs B&H)
+- Identified limitations: All-in approach missed 3 better entry opportunities
+- Estimated opportunity cost: +2.2% if used position sizing
+
+**Day 6: Enhanced Strategy**
+- Implemented ScaledBacktester with 7-tier F&G signal system
+- Tiered position sizing: STRONG_BUY (50%), BUY (25%), WEAK_BUY (10%)
+- Result: +0.11% return (only positive return across all strategies!)
+- Enhanced beat original by +0.15pp, executed 21 trades vs 1
+- VALIDATED: Position sizing improves performance
+- Captured all 4 major buy signals (Oct 12, 17, 18, 22)
 
 ## Tech Stack
 - Python 3.13
@@ -30,20 +62,26 @@ trade/
 ├── venv/                      # Virtual environment
 ├── scratchpad/                # Experimental/learning implementations
 │   ├── day1/                  # Day 1: Fear & Greed Index fetching
-│   └── day2/                  # Day 2: Bitcoin prices + data combination
-├── src/                       # Production-quality modular code
+│   ├── day2/                  # Day 2: Bitcoin prices + data combination
+│   ├── day3/                  # Day 3: Signal generation with thresholds
+│   ├── day4/                  # Day 4: Backtesting with SimpleBacktester
+│   ├── day5/                  # Day 5: Threshold optimization (9 combos)
+│   └── day6/                  # Day 6: Enhanced strategy with position sizing
+├── src/                       # Production-quality modular code (future)
 │   ├── data/                  # Data fetching modules
 │   ├── analysis/              # Signal generation and analysis
 │   ├── backtest/              # Backtesting engine
 │   └── utils/                 # Shared utilities
-├── tests/                     # Unit tests
-├── config/                    # Configuration files
+├── tests/                     # Unit tests (future)
+├── config/                    # Configuration files (future)
 ├── .env                       # API keys and secrets (not committed)
 ├── requirements.txt           # Python dependencies
+├── .gitignore                 # Git ignore patterns
 ├── claude.md                  # This file - project context
-├── FINDINGS.md                # Key observations and insights
+├── FINDINGS.md                # Comprehensive research findings (813 lines!)
 ├── PROMPTING_GUIDE.md         # How to prompt for good code
-└── plan.md                    # 5-day project roadmap
+├── README.md                  # Project overview and results
+└── plan.md                    # Original 7-day project roadmap
 ```
 
 ## Coding Standards & Best Practices
