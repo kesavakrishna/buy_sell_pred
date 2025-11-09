@@ -342,8 +342,8 @@ def create_visualizations(df, analysis):
     ax5.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
-    plt.savefig('scratchpad/week2/day8_analysis_charts.png', dpi=300, bbox_inches='tight')
-    print("\n[OK] Visualizations saved to: scratchpad/week2/day8_analysis_charts.png")
+    plt.savefig('scratchpad/week2/day8/day8_analysis_charts.png', dpi=300, bbox_inches='tight')
+    print("\n[OK] Visualizations saved to: scratchpad/week2/day8/day8_analysis_charts.png")
 
     return fig
 
@@ -647,9 +647,9 @@ def main():
     report = generate_report(analysis, metrics, strengths, weaknesses)
 
     # Save report
-    with open('scratchpad/week2/day8_week1_analysis.md', 'w', encoding='utf-8') as f:
+    with open('scratchpad/week2/day8/day8_week1_analysis.md', 'w', encoding='utf-8') as f:
         f.write(report)
-    print("[OK] Report saved to: scratchpad/week2/day8_week1_analysis.md")
+    print("[OK] Report saved to: scratchpad/week2/day8/day8_week1_analysis.md")
     print()
 
     # Print summary
@@ -682,8 +682,8 @@ def main():
     print("DAY 8 COMPLETE")
     print("=" * 60)
     print()
-    print("[CHARTS] View visualizations: scratchpad/week2/day8_analysis_charts.png")
-    print("[REPORT] Read full report: scratchpad/week2/day8_week1_analysis.md")
+    print("[CHARTS] View visualizations: scratchpad/week2/day8/day8_analysis_charts.png")
+    print("[REPORT] Read full report: scratchpad/week2/day8/day8_week1_analysis.md")
     print()
     print("Next: Day 9 - Add Whale Movements Indicator")
 
