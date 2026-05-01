@@ -1,0 +1,36 @@
+assets:
+  - BTC/USDT
+  - ETH/USDT
+
+horizons: [1, 7, 30]
+
+data:
+  exchange: binance
+  timeframe: 1d
+  days_back: 1000
+  data_dir: data/
+
+features:
+  rsi_period: 14
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_period: 20
+  bb_std: 2.0
+  ema_periods: [9, 21, 50, 200]
+  lag_days: [1, 2, 3, 7, 14]
+  rolling_windows: [7, 14, 30]
+
+evaluation:
+  n_splits: 5
+  train_min_days: 200
+  test_days: 60
+
+fees_bps: 10  # one-way transaction cost in basis points
+
+models:
+  logistic:
+    C: 1.0
+    max_iter: 1000
+  quantile:
+    quantiles: [0.1, 0.5, 0.9]
