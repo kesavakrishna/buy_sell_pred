@@ -32,5 +32,13 @@ models:
   logistic:
     C: 1.0
     max_iter: 1000
+  xgboost:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    early_stopping_rounds: 30
   quantile:
     quantiles: [0.1, 0.5, 0.9]
