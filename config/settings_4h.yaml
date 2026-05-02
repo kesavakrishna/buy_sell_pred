@@ -1,0 +1,59 @@
+assets:
+  - BTC/USDT
+  - ETH/USDT
+
+# Horizons in 4h bars: 6=1d, 42=7d, 180=30d
+horizons: [6, 42, 180]
+
+data:
+  exchange: binance
+  timeframe: 4h
+  days_back: 1000       # 1000 days × 6 bars/day ≈ 6000 bars
+  bars_per_day: 6
+  data_dir: data/
+
+features:
+  # Periods in 4h bars (not calendar days)
+  rsi_period: 42        # 42 bars = 7 calendar days
+  macd_fast: 24         # 24 bars = 4 days
+  macd_slow: 72         # 72 bars = 12 days
+  macd_signal: 18       # 18 bars = 3 days
+  bb_period: 42         # 42 bars = 7 days
+  bb_std: 2.0
+  ema_periods: [6, 24, 72, 300]   # 1d, 4d, 12d, 50d in bars
+  lag_days: [1, 2, 3, 6, 12, 24, 42]  # lag in bars: 4h, 8h, 12h, 1d, 2d, 4d, 7d
+  rolling_windows: [6, 24, 42]    # 1d, 4d, 7d in bars — short windows for ARCH detection
+
+evaluation:
+  n_splits: 5
+  train_min_days: 1200  # 200 calendar days × 6 bars
+  test_days: 360        # 60 calendar days × 6 bars
+
+fees_bps: 10
+
+derivatives:
+  enabled: true
+  days_back: 1000
+  z_window: 180         # 30 calendar days × 6 bars
+
+# Regime EMAs scaled to match same calendar durations as daily pipeline
+# EMA50_daily=50d → EMA300_4h; EMA200_daily=200d → EMA1200_4h
+regime:
+  trend_ema: 1200
+  fast_ema: 300
+  slow_ema: 1200
+
+models:
+  logistic:
+    C: 1.0
+    max_iter: 1000
+  xgboost:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    early_stopping_rounds: 30
+  quantile:
+    quantiles: [0.1, 0.5, 0.9]

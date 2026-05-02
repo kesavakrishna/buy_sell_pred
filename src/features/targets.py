@@ -1,4 +1,4 @@
-"""Target variable construction for multi-horizon directional prediction."""
+"""Target variable construction for multi-horizon directional and vol prediction."""
 import logging
 from typing import List
 
@@ -55,4 +55,52 @@ def build_all_targets(
     for h in horizons:
         df = add_direction_target(df, h, threshold)
     logger.debug("Targets built for horizons %s", horizons)
+    return df
+
+
+def add_vol_target(df: pd.DataFrame, horizon: int, bars_per_day: int = 1) -> pd.DataFrame:
+    """Add annualized future realized volatility target for a given horizon.
+
+    Vol = std of bar log-returns over the next H bars × sqrt(252 × bars_per_day).
+    At daily (bars_per_day=1), H=1 is degenerate (std of one bar = NaN with ddof=1)
+    and the vol pipeline will skip it automatically via dropna.
+
+    The continuous vol column is named `future_vol_{H}d`. Binarization into
+    high/low regime is done inside the CV loop using the training-fold median
+    so there is no lookahead into the test set.
+
+    Args:
+        df: DataFrame with 'close' column, sorted ascending
+        horizon: Forecast horizon in bars
+        bars_per_day: Bars per calendar day for correct annualization
+
+    Returns:
+        Copy of df with 'future_vol_{horizon}d' column appended
+    """
+    out = df.copy()
+    log_ret = np.log(out["close"] / out["close"].shift(1))
+    ann = np.sqrt(252 * bars_per_day)
+    future_vol = log_ret.rolling(horizon).std().shift(-horizon) * ann
+    out[f"future_vol_{horizon}d"] = future_vol
+    return out
+
+
+def build_all_vol_targets(
+    df: pd.DataFrame,
+    horizons: List[int] = [7, 30],
+    bars_per_day: int = 1,
+) -> pd.DataFrame:
+    """Add future realized vol targets for every horizon.
+
+    Args:
+        df: DataFrame with 'close' column
+        horizons: List of forecast horizons in bars
+        bars_per_day: Bars per calendar day for annualization
+
+    Returns:
+        DataFrame with 'future_vol_{H}d' columns appended for each horizon
+    """
+    for h in horizons:
+        df = add_vol_target(df, h, bars_per_day)
+    logger.debug("Vol targets built for horizons %s", horizons)
     return df

@@ -89,20 +89,26 @@ def add_ema_ratios(df: pd.DataFrame, periods: List[int] = [9, 21, 50, 200]) -> p
     return out
 
 
-def add_rolling_vol(df: pd.DataFrame, windows: List[int] = [7, 14, 30]) -> pd.DataFrame:
+def add_rolling_vol(
+    df: pd.DataFrame,
+    windows: List[int] = [7, 14, 30],
+    bars_per_day: int = 1,
+) -> pd.DataFrame:
     """Add annualized realized volatility over rolling windows.
 
     Args:
         df: DataFrame with 'close' column
-        windows: Rolling window sizes in days
+        windows: Rolling window sizes in bars
+        bars_per_day: Number of bars per calendar day (1 for daily, 6 for 4h)
 
     Returns:
         Copy of df with 'vol_{w}d' columns (annualized)
     """
     out = df.copy()
     log_ret = np.log(out["close"] / out["close"].shift(1))
+    ann = np.sqrt(252 * bars_per_day)
     for w in windows:
-        out[f"vol_{w}d"] = log_ret.rolling(w).std() * np.sqrt(252)
+        out[f"vol_{w}d"] = log_ret.rolling(w).std() * ann
     return out
 
 
@@ -116,11 +122,13 @@ def build_technical_features(
     bb_std: float = 2.0,
     ema_periods: List[int] = [9, 21, 50, 200],
     vol_windows: List[int] = [7, 14, 30],
+    bars_per_day: int = 1,
 ) -> pd.DataFrame:
     """Apply all technical indicators sequentially.
 
     Args:
         df: DataFrame with OHLCV columns
+        bars_per_day: Bars per calendar day — controls vol annualization
 
     Returns:
         DataFrame with all indicator columns appended
@@ -129,6 +137,6 @@ def build_technical_features(
     df = add_macd(df, macd_fast, macd_slow, macd_signal)
     df = add_bollinger_bands(df, bb_period, bb_std)
     df = add_ema_ratios(df, ema_periods)
-    df = add_rolling_vol(df, vol_windows)
+    df = add_rolling_vol(df, vol_windows, bars_per_day)
     logger.debug("Technical features built: %d columns total", df.shape[1])
     return df

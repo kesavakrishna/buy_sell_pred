@@ -17,11 +17,14 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from src.data.derivatives_fetcher import DerivativesFetcher
 from src.data.fear_greed_fetcher import FearGreedFetcher
 from src.data.ohlcv_fetcher import OHLCVFetcher
 from src.evaluation.metrics import evaluate_fold, summarize_folds
 from src.evaluation.shap_analysis import run_shap
 from src.evaluation.walk_forward import WalkForwardCV
+from src.features.derivatives import build_derivatives_features
+from src.features.garch import build_garch_features
 from src.features.lags import build_lag_features
 from src.features.regime import add_regime_features
 from src.features.targets import build_all_targets
@@ -43,26 +46,48 @@ def load_config(path: str = "config/settings.yaml") -> dict:
 
 
 def build_dataset(cfg: dict, asset: str, refresh: bool = False) -> pd.DataFrame:
-    """Fetch OHLCV + Fear & Greed, then build all features and targets."""
+    """Fetch OHLCV + Fear & Greed + derivatives, then build all features and targets."""
+    data_cfg = cfg["data"]
+    bars_per_day = data_cfg.get("bars_per_day", 1)
+
     fetcher = OHLCVFetcher(
-        exchange_id=cfg["data"]["exchange"],
-        timeframe=cfg["data"]["timeframe"],
+        exchange_id=data_cfg["exchange"],
+        timeframe=data_cfg["timeframe"],
     )
-    data_dir = cfg["data"]["data_dir"]
+    data_dir = data_cfg["data_dir"]
 
     if refresh:
-        df = fetcher.fetch_and_save(asset, data_dir, cfg["data"]["days_back"])
+        df = fetcher.fetch_and_save(asset, data_dir, data_cfg["days_back"])
     else:
         try:
             df = fetcher.load_cached(asset, data_dir)
         except FileNotFoundError:
             logger.info("No cache found — fetching from Binance")
-            df = fetcher.fetch_and_save(asset, data_dir, cfg["data"]["days_back"])
+            df = fetcher.fetch_and_save(asset, data_dir, data_cfg["days_back"])
 
+    # Fear & Greed (daily). At sub-daily frequency the left join leaves intra-day
+    # bars as NaN; ffill propagates the midnight value to the rest of each day.
     fg_df = FearGreedFetcher().fetch(limit=365)
     df = df.join(fg_df, how="left")
     df["fear_greed"] = df["fear_greed"].ffill().fillna(50)  # 50 = neutral when no history
     df = df.drop(columns=["fg_label"], errors="ignore")
+
+    # Derivatives (funding rate, open interest, long/short ratio — all daily)
+    deriv_cfg = cfg.get("derivatives", {})
+    if deriv_cfg.get("enabled", True):
+        deriv_fetcher = DerivativesFetcher()
+        try:
+            if refresh:
+                deriv_df = deriv_fetcher.fetch_and_save(asset, data_dir, deriv_cfg.get("days_back", 1000))
+            else:
+                try:
+                    deriv_df = deriv_fetcher.load_cached(asset, data_dir)
+                except FileNotFoundError:
+                    logger.info("No derivatives cache — fetching from Binance Futures")
+                    deriv_df = deriv_fetcher.fetch_and_save(asset, data_dir, deriv_cfg.get("days_back", 1000))
+            df = build_derivatives_features(df, deriv_df, z_window=deriv_cfg.get("z_window", 30))
+        except Exception as e:
+            logger.warning("Derivatives fetch failed (%s) — continuing without derivatives features", e)
 
     fc = cfg["features"]
     df = build_technical_features(
@@ -75,15 +100,25 @@ def build_dataset(cfg: dict, asset: str, refresh: bool = False) -> pd.DataFrame:
         bb_std=fc["bb_std"],
         ema_periods=fc["ema_periods"],
         vol_windows=fc["rolling_windows"],
+        bars_per_day=bars_per_day,
     )
     df = build_lag_features(df, fc["lag_days"], fc["rolling_windows"])
-    df = add_regime_features(df)
+
+    regime_cfg = cfg.get("regime", {})
+    df = add_regime_features(
+        df,
+        trend_ema=regime_cfg.get("trend_ema", 200),
+        fast_ema=regime_cfg.get("fast_ema", 50),
+        slow_ema=regime_cfg.get("slow_ema", 200),
+    )
+
+    df = build_garch_features(df, bars_per_day=bars_per_day)
     df = build_all_targets(df, horizons=cfg["horizons"])
     return df
 
 
 def _feature_cols(df: pd.DataFrame) -> List[str]:
-    target_prefixes = ("direction_", "log_return_")
+    target_prefixes = ("direction_", "log_return_", "future_vol_")
     return [
         c for c in df.columns
         if c not in _OHLCV_COLS and not any(c.startswith(p) for p in target_prefixes)
@@ -164,7 +199,9 @@ def run_horizon(
         y_prob = dir_model.predict_proba(X_te)
         q_df = quant_model.predict_as_df(X_te)
 
-        metrics = evaluate_fold(y_te_dir.values, y_prob, y_te_ret.values, cfg["fees_bps"])
+        bars_per_day = cfg["data"].get("bars_per_day", 1)
+        annualize = int(252 * bars_per_day)
+        metrics = evaluate_fold(y_te_dir.values, y_prob, y_te_ret.values, cfg["fees_bps"], annualize)
         metrics["fold"] = fold_i + 1
         fold_results.append(metrics)
         logger.info(
@@ -211,7 +248,8 @@ def main() -> None:
     cfg = load_config(args.config)
     horizons = [args.horizon] if args.horizon else cfg["horizons"]
 
-    output_dir = Path("outputs") / args.asset.replace("/", "_")
+    timeframe = cfg["data"].get("timeframe", "1d")
+    output_dir = Path("outputs") / f"{args.asset.replace('/', '_')}_{timeframe}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Building dataset for %s...", args.asset)

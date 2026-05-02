@@ -3,6 +3,7 @@ assets:
   - ETH/USDT
 
 horizons: [1, 7, 30]
+vol_horizons: [7, 30]   # H=1 is degenerate for vol; skip it
 
 data:
   exchange: binance
@@ -27,6 +28,11 @@ evaluation:
   test_days: 60
 
 fees_bps: 10  # one-way transaction cost in basis points
+
+derivatives:
+  enabled: true
+  days_back: 1000
+  z_window: 30       # rolling window for Z-score normalization of funding/LS ratio
 
 models:
   logistic:
