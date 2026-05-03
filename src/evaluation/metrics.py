@@ -35,6 +35,35 @@ def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return float(np.mean((y_prob - y_true) ** 2))
 
 
+def sized_sharpe(
+    size: np.ndarray,
+    log_returns: np.ndarray,
+    fees_bps: float = 10,
+    annualize: int = 252,
+) -> float:
+    """Annualized Sharpe for any continuous position-size array.
+
+    Fee is proportional to the absolute change in position size each step.
+
+    Args:
+        size: Position size at each step, in [0, 1]
+        log_returns: Actual log returns for each step
+        fees_bps: One-way fee in basis points
+        annualize: Periods per year
+
+    Returns:
+        Annualized Sharpe ratio
+    """
+    size = np.asarray(size, dtype=float)
+    prev_size = np.concatenate([[0.0], size[:-1]])
+    fee_cost = np.abs(size - prev_size) * (fees_bps / 10_000)
+    pnl = size * log_returns - fee_cost
+    std = pnl.std()
+    if std == 0:
+        return 0.0
+    return float(pnl.mean() / std * np.sqrt(annualize))
+
+
 def strategy_sharpe(
     y_prob: np.ndarray,
     log_returns: np.ndarray,
