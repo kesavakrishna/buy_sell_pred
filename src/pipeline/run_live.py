@@ -1,7 +1,7 @@
 """Live vol-prediction logger and evaluator.
 
-Run once per day to log today's vol-regime prediction. After 60–90 days, use
---eval to compare logged predictions against actual realized volatility.
+Run once per day to log today's vol-regime prediction. After 7+ days from the
+first prediction, --eval compares logged predictions against actual realized vol.
 
 How it works
 ------------
@@ -9,11 +9,15 @@ How it works
 2. Trains the vol XGBoost model on all rows where the 7d future vol is known
    (i.e., every bar except the last 7).
 3. Predicts P(high_vol) for today's bar (whose future vol is not yet known).
-4. Appends one row to data/live_predictions.parquet.
+4. Pickles the trained model to data/model_snapshots/{date}_{asset}.pkl.
+5. Appends one row to data/live_predictions.parquet, including a snapshot of
+   the top ~12 features the model saw and the path to the saved model.
 
-After 7+ days from the first prediction, --eval fetches current prices and
-computes the actual realized vol for each prediction date, then reports accuracy,
-Brier score, and the simulated Sharpe of a vol-sizing strategy.
+--eval joins the log against actuals, then reports:
+- Hit rate and Brier score
+- Strategy Sharpe (vol-sizing) vs buy-and-hold
+- Calibration table (mean predicted P vs actual high-vol rate per decile bin)
+- Last 10 resolved predictions with feature snapshot
 
 Usage
 -----
@@ -24,6 +28,7 @@ Usage
 """
 import argparse
 import logging
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -39,6 +44,21 @@ logger = logging.getLogger(__name__)
 
 _HORIZON = 7          # days — 7d vol is the best-performing horizon from CV
 _LOG_PATH = Path("data/live_predictions.parquet")
+_MODEL_SNAPSHOT_DIR = Path("data/model_snapshots")
+
+# Snapshotted alongside each prediction. Top SHAP features across Phase 3B/4/5
+# plus regime + funding context. Locking these in at prediction time protects
+# against later feature-engineering changes invalidating audits.
+_SNAPSHOT_FEATURES = [
+    "trend_strength", "close_vs_ema200",
+    f"vol_{_HORIZON}d", "vol_14d", "vol_30d", "vol_3b",
+    "funding_7d_mean", "funding_30d_mean",
+    "hl_range", "rsi", "fear_greed", "return_7d",
+]
+
+
+def _safe_get(row: pd.DataFrame, col: str) -> float:
+    return float(row[col].iloc[0]) if col in row.columns else float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +102,23 @@ def predict_today(cfg: dict, asset: str) -> dict:
     p_high_vol = float(model.predict_proba(X_today)[0])
     implied_size = 1.0 - p_high_vol
 
-    # Log key features for interpretability
-    ts = today_row["trend_strength"].iloc[0] if "trend_strength" in today_row.columns else float("nan")
-    v7 = today_row.get(f"vol_{_HORIZON}d", pd.Series([float("nan")])).iloc[0]
-    fund = today_row["funding_7d_mean"].iloc[0] if "funding_7d_mean" in today_row.columns else float("nan")
+    feature_snapshot = {f"feat_{col}": _safe_get(today_row, col) for col in _SNAPSHOT_FEATURES}
+
+    asset_slug = asset.replace("/", "_")
+    snapshot_date = pd.Timestamp(today_date).date()
+    snapshot_path = _MODEL_SNAPSHOT_DIR / f"{snapshot_date}_{asset_slug}.pkl"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(snapshot_path, "wb") as f:
+        pickle.dump({
+            "model": model,
+            "feat_cols": feat_cols,
+            "vol_threshold": vol_threshold,
+            "train_rows": len(X_tr),
+            "train_median": train_df[feat_cols].median().to_dict(),
+            "snapshot_date": str(snapshot_date),
+            "asset": asset,
+        }, f)
+    logger.info("Saved model snapshot -> %s", snapshot_path)
 
     record = {
         "date": pd.Timestamp(today_date).normalize(),
@@ -94,16 +127,16 @@ def predict_today(cfg: dict, asset: str) -> dict:
         "p_high_vol": p_high_vol,
         "implied_size": implied_size,
         "vol_threshold": vol_threshold,
-        "trend_strength": ts,
-        f"trailing_vol_{_HORIZON}d": v7,
-        "funding_7d_mean": fund,
         "train_rows": len(X_tr),
+        "model_snapshot": str(snapshot_path).replace("\\", "/"),
+        **feature_snapshot,
     }
 
     logger.info(
         "Prediction for %s: P(high_vol)=%.3f  implied_size=%.3f  "
         "trend_strength=%.4f  trailing_vol=%.4f",
-        pd.Timestamp(today_date).date(), p_high_vol, implied_size, ts, v7,
+        snapshot_date, p_high_vol, implied_size,
+        feature_snapshot["feat_trend_strength"], feature_snapshot[f"feat_vol_{_HORIZON}d"],
     )
     return record
 
@@ -200,8 +233,30 @@ def evaluate(cfg: dict, asset: str, min_resolved_days: int = 7) -> None:
     print(f"Brier score          : {vol_brier:.4f}")
     print(f"Strategy Sharpe      : {strategy_sharpe:.2f}")
     print(f"Buy & Hold Sharpe    : {bh_sharpe:.2f}")
-    print(f"\nPrediction log:")
-    print(resolved[["p_high_vol", "implied_size", "actual_high_vol", "trend_strength"]].to_string())
+
+    # Calibration: if predictions are well-calibrated, mean(P) in each bin
+    # should match the actual high-vol rate. Large gaps indicate Platt scaling
+    # would help.
+    n_bins = min(5, max(2, len(resolved) // 4))
+    try:
+        bins = pd.qcut(resolved["p_high_vol"], q=n_bins, duplicates="drop")
+        cal = resolved.groupby(bins, observed=True).agg(
+            n=("p_high_vol", "size"),
+            mean_pred=("p_high_vol", "mean"),
+            actual_rate=("actual_high_vol", "mean"),
+        )
+        cal["gap"] = cal["actual_rate"] - cal["mean_pred"]
+        print(f"\nCalibration ({n_bins} bins, gap = actual − predicted):")
+        print(cal.round(3).to_string())
+    except ValueError:
+        print("\nCalibration: not enough variance in p_high_vol to bin.")
+
+    # Show the most recent feature snapshots so drift is visible at a glance
+    feat_cols_logged = [c for c in resolved.columns if c.startswith("feat_")]
+    print(f"\nResolved prediction log (last 10):")
+    show_cols = ["p_high_vol", "implied_size", "actual_high_vol"] + feat_cols_logged[:4]
+    show_cols = [c for c in show_cols if c in resolved.columns]
+    print(resolved[show_cols].tail(10).round(4).to_string())
 
 
 # ---------------------------------------------------------------------------
