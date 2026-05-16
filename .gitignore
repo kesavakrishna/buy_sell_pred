@@ -51,7 +51,11 @@ Thumbs.db
 #folders
 ignore/
 
-# Generated data and outputs
-data/
+# Generated data and outputs (regenerable caches)
+data/*.parquet
+data/*.csv
 outputs/
 *.parquet
+
+# Live prediction log is append-only and must persist across runs
+!data/live_predictions.parquet
