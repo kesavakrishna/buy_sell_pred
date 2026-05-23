@@ -94,8 +94,16 @@ def predict_today(cfg: dict, asset: str) -> dict:
     logger.info("Training vol model on %d rows (vol_threshold=%.4f)...", len(X_tr), vol_threshold)
     model = XGBoostDirectionModel(**cfg["models"]["xgboost"]).fit(X_tr, y_tr_vol)
 
-    # Today = the last bar in the dataset (future vol not yet known)
-    today_row = df.iloc[[-1]]
+    # Predict from the last FULLY-CLOSED bar, not the in-progress one. A daily
+    # bar dated D closes at D+1 00:00 UTC, so it appears as the last row while
+    # still open. Dropping it makes the prediction identical regardless of what
+    # time of day the job runs (any run during UTC-day D uses the same closed
+    # bar D-1), which is what lets a local scheduler fire at any convenient hour.
+    today_utc = pd.Timestamp.utcnow().normalize().tz_localize(None)
+    closed = df[df.index < today_utc]
+    if closed.empty:
+        raise RuntimeError("No fully-closed bars available to predict from.")
+    today_row = closed.iloc[[-1]]
     today_date = today_row.index[0]
     X_today = today_row[feat_cols].fillna(train_df[feat_cols].median())
 
