@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Daily vol-regime prediction logger — wrapper for Windows Task Scheduler.
+    Daily vol-regime prediction logger - wrapper for Windows Task Scheduler.
 
 .DESCRIPTION
     Runs src.pipeline.run_live to log today's BTC vol prediction, then commits
@@ -8,15 +8,23 @@
     by Task Scheduler. All output is appended to logs/daily_predict.log.
 
     The prediction is computed from the last fully-closed daily bar, so it does
-    not matter what time of day this fires — any run during a given UTC day
+    not matter what time of day this fires: any run during a given UTC day
     produces the same result. If the machine was off at the scheduled time,
     Task Scheduler's "run as soon as possible after a missed start" replays it.
 
     Git push is best-effort: if it fails (e.g. offline), the local parquet is
     still the source of truth and the next successful run will push everything.
+
+    NOTES on PowerShell 5.1:
+    - Keep this file ASCII-only. PS 5.1 reads .ps1 as ANSI without a BOM, so
+      non-ASCII punctuation breaks the parser.
+    - Native stderr is redirected to the log with file operators (1>>/2>>),
+      NOT piped via 2>&1. Piping a native command's stderr wraps each line in
+      an ErrorRecord, which aborts under ErrorActionPreference=Stop even on a
+      clean exit. We check $LASTEXITCODE for real success/failure instead.
 #>
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $LogDir = Join-Path $RepoRoot "logs"
@@ -26,18 +34,21 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out
 
 function Log($msg) {
     $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    "$ts  $msg" | Tee-Object -FilePath $LogFile -Append
+    $line = "$ts  $msg"
+    Write-Host $line
+    Add-Content -Path $LogFile -Value $line
 }
 
 Set-Location $RepoRoot
 Log "=== daily_predict start ==="
 
-# 1. Run the predictor. Capture combined output.
-$predictOut = & $Python -m src.pipeline.run_live --asset BTC/USDT 2>&1 | Out-String
-$predictOut.TrimEnd().Split("`n") | ForEach-Object { Log $_ }
+# 1. Run the predictor. Merge stderr into stdout (single stream) and append to
+#    the log. $LASTEXITCODE still reflects python's real exit code.
+& $Python -m src.pipeline.run_live --asset BTC/USDT 2>&1 | Add-Content -Path $LogFile
+$exit = $LASTEXITCODE
 
-if ($LASTEXITCODE -ne 0) {
-    Log "PREDICTOR FAILED (exit $LASTEXITCODE) — no commit attempted."
+if ($exit -ne 0) {
+    Log "PREDICTOR FAILED (exit $exit) - no commit attempted. See output above."
     Log "=== daily_predict end (failure) ==="
     exit 1
 }
@@ -45,22 +56,22 @@ if ($LASTEXITCODE -ne 0) {
 # 2. Commit only if the prediction log actually changed.
 $changed = git status --porcelain data/live_predictions.parquet data/model_snapshots/
 if ([string]::IsNullOrWhiteSpace($changed)) {
-    Log "No change to prediction log — nothing to commit (likely already logged today)."
+    Log "No change to prediction log - nothing to commit (likely already logged today)."
     Log "=== daily_predict end (no-op) ==="
     exit 0
 }
 
 $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-git add data/live_predictions.parquet data/model_snapshots/
-git commit -m "Log daily vol prediction $today" | ForEach-Object { Log $_ }
+git add data/live_predictions.parquet data/model_snapshots/ 2>&1 | Add-Content -Path $LogFile
+git commit -m "Log daily vol prediction $today" 2>&1 | Add-Content -Path $LogFile
+Log "Committed prediction for $today."
 
-# 3. Best-effort push. A failure here is non-fatal — local parquet persists.
-try {
-    git push origin main 2>&1 | ForEach-Object { Log $_ }
-    if ($LASTEXITCODE -ne 0) { throw "git push exited $LASTEXITCODE" }
+# 3. Best-effort push. A failure here is non-fatal: local parquet persists.
+git push origin main 2>&1 | Add-Content -Path $LogFile
+if ($LASTEXITCODE -eq 0) {
     Log "Pushed to origin/main."
-} catch {
-    Log "PUSH FAILED (non-fatal): $_  — committed locally; next run will push."
+} else {
+    Log "PUSH FAILED (non-fatal, exit $LASTEXITCODE) - committed locally; next run will push."
 }
 
 Log "=== daily_predict end (logged) ==="
