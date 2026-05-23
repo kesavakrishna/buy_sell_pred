@@ -71,6 +71,28 @@ a more stable, genuinely above-50% signal.
   handles bears. The unsolved problem (long-only can't profit from downtrends) is
   unchanged — it's just diluted across more folds.
 
+## Finding 4b — Vol prediction does NOT benefit from long history (it slightly hurts)
+
+Direction improved with long history, but the **vol-sizing** strategy (what the
+live test deploys) did not. Running `run_vol.py` on the same 8-year data:
+
+| Horizon | Vol accuracy | Sizing Sharpe | Buy & Hold | Sharpe lift |
+|---|---|---|---|---|
+| 7d  | 46.1% | +0.24 | +0.28 | **−0.04** |
+| 30d | 35.6% | +0.26 | +0.27 | **−0.01** |
+
+Vol accuracy fell *below 50%* with wild fold variance (folds at 0.13, 0.20, 0.87).
+**Mechanism:** the vol target is binarized at the training-median realized vol.
+Over 8 years absolute vol levels shifted dramatically (2017-18 was far more
+volatile than 2023-26), so a global median threshold is miscalibrated for any
+given test window — the test period often sits entirely above or below it,
+wrecking the binary call. A **recent/rolling window is better for vol regime
+classification**, the opposite of direction.
+
+**Consequence:** the live forward test (7d vol sizing) should keep its ~1000-day
+window. Do NOT widen it. The "train on full history" lesson applies to the
+*direction* model only.
+
 ## Finding 4 — Funding dominates across full history
 
 Top features (30d bull model): `funding_30d_mean` (0.43), `macd_signal` (0.40),
@@ -84,10 +106,11 @@ with every prior phase.
 
 1. **Close the regime-conditional line.** Confirmed across both data regimes
    (scarce and abundant bear data) that it doesn't help.
-2. **Train on full history, not 1000 days.** The single most actionable result:
-   more history → more stable, above-50% direction accuracy and positive mean
-   Sharpe. The live predictor currently caps at `days_back: 1000`; it should use
-   full history.
+2. **Train on full history for DIRECTION only — NOT for the vol-sizing live test.**
+   More history → stabler above-50% direction accuracy (Finding 3). But vol
+   prediction got *worse* with long history (Finding 4b: threshold miscalibration).
+   Since the live test sizes on vol, **keep its ~1000-day window unchanged.** If we
+   ever ship a direction model, that one should use full history.
 3. **Long-only remains the ceiling.** Even with 8 years and positive mean Sharpe,
    the 2022-bear folds are disasters. The next real lever is allowing short
    positions (`size ∈ [−1, 1]`) — now more justified, because the model has
