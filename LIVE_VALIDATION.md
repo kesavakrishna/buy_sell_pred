@@ -9,6 +9,45 @@ out-of-sample on truly unseen data.
 
 ---
 
+## ⚡ Status at a glance (last updated 2026-05-23)
+
+| Thing | State |
+|---|---|
+| **Daily predictor** | ✅ Running **locally** — Windows Task Scheduler task `BTC vol-regime daily logger`, daily **09:00 IST** |
+| **Cloud routine** (`trig_017YH8WA7fpk5nchnzNYNDFs`) | ⛔ **Disabled** — broken by Anthropic egress SSL proxy; left disabled, not deleted |
+| **First data point** | 2026-05-22 (P(high_vol)=0.433), logged manually during setup |
+| **First *automatic* run** | 2026-05-24 09:00 IST (not yet confirmed firing unattended) |
+| **First `--eval` worth running** | ~2026-05-29 (needs 7 resolved days) |
+| **Where data lands** | `data/live_predictions.parquet` + `data/model_snapshots/`, committed & pushed each run |
+| **Run log** | `logs/daily_predict.log` (local, gitignored) |
+
+**Fast controls:**
+```powershell
+# Is it on? when does it run next? did the last run succeed?
+Get-ScheduledTaskInfo -TaskName "BTC vol-regime daily logger"
+
+# Pause / resume the automatic daily run
+Disable-ScheduledTask -TaskName "BTC vol-regime daily logger"
+Enable-ScheduledTask  -TaskName "BTC vol-regime daily logger"
+
+# Remove it entirely
+Unregister-ScheduledTask -TaskName "BTC vol-regime daily logger" -Confirm:$false
+
+# Run a prediction right now (also commits + pushes)
+powershell -ExecutionPolicy Bypass -File scripts/daily_predict.ps1
+
+# See what happened
+Get-Content logs/daily_predict.log -Tail 40
+
+# Evaluate accumulated predictions (after ~7 days)
+venv/Scripts/python -m src.pipeline.run_live --eval
+```
+
+> The disabled cloud routine is controlled at https://claude.ai/code/routines — it
+> runs in Anthropic's cloud, NOT on your laptop, and is currently off.
+
+---
+
 ## What's deployed
 
 The daily prediction runs **locally via Windows Task Scheduler**, not in the
@@ -213,3 +252,36 @@ The disabled cloud routine (`trig_017YH8WA7fpk5nchnzNYNDFs`) is controlled separ
 
 - [PHASE5B_ML_FINDINGS.md](PHASE5B_ML_FINDINGS.md) — full strategy comparison, why we picked vol-sizing
 - Memory: `project_phase3b_findings.md` — short-form summary of all 6 phases
+
+---
+
+## Change log
+
+Newest first. Each entry = what changed, why, and the commit(s).
+
+### 2026-05-23 — Live validation deployed locally
+- **Decided to run locally, not in the cloud.** Set up the Anthropic-hosted routine first, but its test fire failed: the cloud egress proxy does TLS interception with a self-signed CA, so ccxt/requests reject every HTTPS call (`CERTIFICATE_VERIFY_FAILED`). The only workarounds were trusting the proxy CA (may not exist) or disabling cert verification (would risk ingesting proxy-altered prices and corrupting the validation). Chose local execution over trusted TLS instead. Cloud routine left **disabled**.
+- **`run_live` now predicts from the last fully-closed UTC daily bar** (was: the in-progress bar via `iloc[-1]`). Makes the prediction independent of run time, so a local schedule can fire at any hour and a missed run can replay late without changing the result. _(commit `ec9f0f7`)_
+- **Added `scripts/daily_predict.ps1`** — Task Scheduler wrapper: run predictor → commit log + snapshot → best-effort push. Fixed three PS 5.1 gotchas (ANSI/em-dash parse, `2>&1`-under-`Stop` abort, same-file `1>>`/`2>>` lock). _(commits `ec9f0f7`, `97c2c11`)_
+- **Registered Windows Task Scheduler task** `BTC vol-regime daily logger`, daily 09:00 IST, `StartWhenAvailable=True`, run-when-logged-on.
+- **First prediction logged & pushed:** 2026-05-22, via a manual wrapper run. _(commit `e92f3c4`)_
+
+### 2026-05-23 — Audit instrumentation (before data accumulates)
+- **Model snapshots:** each run pickles the fitted XGBoost + feat_cols + train_median to `data/model_snapshots/{date}_{asset}.pkl`. Non-backfillable — lets you reload exactly what predicted a given day.
+- **Expanded feature snapshot:** log ~12 `feat_*` columns (was 3) so model inputs can be reconstructed even if feature code changes later.
+- **Calibration table in `--eval`:** bins `p_high_vol` by decile vs actual high-vol rate; surfaces miscalibration that Brier alone hides. _(commit `153da78`)_
+
+### 2026-05-16 — Bootstrapped the live logger
+- **Committed `src/data/*` fetchers** that the pipeline imports but had never been pushed (cloud clone would have crashed on import). _(commit `6e0e9d2`)_
+- **Made `.gitignore` granular** so `data/live_predictions.parquet` persists while OHLCV/derivative caches stay ignored. _(commit `6e0e9d2`)_
+- **Wrote `src/pipeline/run_live.py`** — daily predictor + `--eval` evaluator. _(earlier commit `dc0c2ed`)_
+
+## Planned / deferred (not done yet)
+
+In rough priority order — revisit after ~1–2 weeks of clean single-asset runs:
+
+1. **Confirm unattended firing** — verify the 2026-05-24 09:00 IST scheduler run actually fires and pushes (the only untested link; manual runs are proven).
+2. **Extend training history to 2018/2020/2022** — biggest open lever; the bear-data scarcity (~50 bear rows in the current 1000-day window) is what broke the regime-conditional model. More bear cycles could make a bear-trained model honest enough to eventually justify short positions.
+3. **Multi-asset (ETH) + multi-horizon (14d/30d) logging** — 6× the evaluation density; held off because it multiplies each run's training cost.
+4. **Going short (`size ∈ [−1, 1]`)** — only after (2); shorting on the current sub-50% bear-fold direction signal would amplify losses.
+5. **Weekly auto-report / Platt recalibration** — backfillable from the logs, so no rush.
