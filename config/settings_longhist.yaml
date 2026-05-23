@@ -1,0 +1,60 @@
+# Long-history experiment config — ISOLATED from the live validation.
+#
+# Purpose: test whether extending BTC history to include the 2018-2019 and 2022
+# bear cycles gives the regime-conditional model enough bear-regime training rows
+# to stop falling back to the combined model (the open question from Phase 5B).
+#
+# Isolation: data_dir is data/longhist/ so this NEVER touches the live predictor's
+# data/BTC_USDT_1d.parquet (which run_live refreshes to ~1000 days every run).
+# Outputs land in outputs/BTC_USDT_1d/ and will overwrite the regular regime plots
+# — those are regenerable, not part of the live experiment.
+
+assets:
+  - BTC/USDT
+
+horizons: [1, 7, 30]
+vol_horizons: [7, 30]
+
+data:
+  exchange: binance
+  timeframe: 1d
+  days_back: 3200        # ~Aug 2017 (BTC/USDT listing) -> now; ~3190 rows
+  data_dir: data/longhist/
+
+features:
+  rsi_period: 14
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_period: 20
+  bb_std: 2.0
+  ema_periods: [9, 21, 50, 200]
+  lag_days: [1, 2, 3, 7, 14]
+  rolling_windows: [7, 14, 30]
+
+evaluation:
+  n_splits: 10           # was 5 — more folds to span 2021-2026 incl. the 2022 bear
+  train_min_days: 400    # larger initial train so early folds aren't data-starved
+  test_days: 180         # 6-month test windows; 10x180 = last ~2160 rows tested
+
+fees_bps: 10
+
+derivatives:
+  enabled: true
+  days_back: 3200        # Binance funding history is sparse pre-2020; rows fill what exists
+  z_window: 30
+
+models:
+  logistic:
+    C: 1.0
+    max_iter: 1000
+  xgboost:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5
+    early_stopping_rounds: 30
+  quantile:
+    quantiles: [0.1, 0.5, 0.9]
