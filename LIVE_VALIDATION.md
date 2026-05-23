@@ -11,20 +11,42 @@ out-of-sample on truly unseen data.
 
 ## What's deployed
 
-### Daily routine
-- **What:** Anthropic-hosted scheduled agent that runs `python -m src.pipeline.run_live --asset BTC/USDT` once per day, then commits the result back to this repo.
-- **Schedule:** `30 0 * * *` UTC → **00:30 UTC daily (06:00 IST)**, ~30 min after Binance's daily candle closes.
-- **Routine ID:** `trig_017YH8WA7fpk5nchnzNYNDFs`
-- **Dashboard:** https://claude.ai/code/routines/trig_017YH8WA7fpk5nchnzNYNDFs (view logs, run-now, disable, edit)
-- **Cost:** Each fire is a real Sonnet 4.6 session — consumes plan tokens. Check usage at `claude.ai`. Expect modest per-fire cost (small handful of tool calls).
-- **Lifetime:** Runs forever until disabled or deleted at the dashboard.
+The daily prediction runs **locally via Windows Task Scheduler**, not in the
+cloud. See "Why local, not cloud" below for the reason.
 
-### Local execution (manual / smoke test)
+### Windows Task Scheduler task
+- **Task name:** `BTC vol-regime daily logger` (open Task Scheduler GUI to inspect)
+- **What it runs:** `scripts/daily_predict.ps1` → runs `run_live`, commits the log + model snapshot, best-effort `git push`.
+- **Schedule:** daily at **09:00 IST**. The time is flexible — the prediction is computed from the last *fully-closed* UTC daily bar, so any run during a given UTC day produces the same result.
+- **Missed runs:** `StartWhenAvailable=True` — if the laptop was off at 09:00, the task runs as soon as it next powers on. A multi-day outage may skip a bar or two (harmless: fewer data points, never corrupt data).
+- **Runs as:** current user, only when logged on. No stored password.
+- **Cost:** none (local CPU). No tokens, no cloud.
+- **Logs:** every run appends to `logs/daily_predict.log` (gitignored, local only).
+
+### Why local, not cloud
+The original plan was an Anthropic-hosted routine (`trig_017YH8WA7fpk5nchnzNYNDFs`,
+now **disabled**). It failed because Anthropic's cloud egress proxy does TLS
+interception with a self-signed CA that Python's `certifi` bundle doesn't trust —
+so *every* outbound HTTPS call (Binance, alternative.me) fails with
+`CERTIFICATE_VERIFY_FAILED`. The only cloud workarounds were (a) trust the proxy
+CA, which may not be installed in the container, or (b) disable cert verification,
+which would mean trusting proxy-altered price data. For a *validation experiment*,
+ingesting untrusted prices could silently corrupt the OOS result — unacceptable.
+Local execution reaches Binance directly over trusted TLS, so we run there.
+
+The cloud routine is left disabled (not deleted) as a reference; re-enable at
+https://claude.ai/code/routines/trig_017YH8WA7fpk5nchnzNYNDFs only if the SSL
+situation changes.
+
+### Local execution (manual / one-off)
 ```bash
+# Direct (what the scheduler wraps):
 python -m src.pipeline.run_live --asset BTC/USDT           # predict + log
 python -m src.pipeline.run_live --eval                      # evaluate (needs 7+ days resolved)
 python -m src.pipeline.run_live --eval --min-days 14        # require 14 resolved before reporting
-python -m src.pipeline.run_live --asset BTC/USDT --config config/settings.yaml
+
+# Or run the full scheduler wrapper by hand (also commits + pushes):
+powershell -ExecutionPolicy Bypass -File scripts/daily_predict.ps1
 ```
 
 ---
@@ -114,38 +136,46 @@ Calibration (5 bins, gap = actual − predicted):
 
 ## Daily routine: under the hood
 
-Each routine fire does this on Anthropic's cloud:
+Each scheduled fire runs `scripts/daily_predict.ps1` on the local machine:
 
-1. Clones `github.com/kesavakrishna/buy_sell_pred` fresh.
-2. `pip install -r requirements.txt`.
-3. Runs `python -m src.pipeline.run_live --asset BTC/USDT`:
+1. Runs `python -m src.pipeline.run_live --asset BTC/USDT` (via the repo venv):
    - Fetches latest OHLCV from Binance, funding/OI/LS-ratio derivatives, fear & greed.
    - Trains a vol XGBoost on all rows where the 7d future vol is known (~last bar minus 7).
-   - Predicts P(high_vol) for today's last bar (whose future is unknown).
+   - Predicts P(high_vol) for the **last fully-closed** UTC daily bar.
    - Saves the fitted model to `data/model_snapshots/`.
    - Appends a row to `data/live_predictions.parquet`.
-4. If the parquet changed, `git add` parquet + snapshots, commit, push. Otherwise reports "no new prediction to log" and exits cleanly.
+2. If the parquet changed, `git add` parquet + snapshots, commit, best-effort push.
+   Otherwise logs "no change ... nothing to commit" and exits.
+3. All output appends to `logs/daily_predict.log`.
 
-**Failure modes the routine handles:**
-- Binance API unreachable → reports error, exits (no retry storm).
-- Push rejected non-fast-forward → `pull --rebase`, retry push once.
+**Failure handling in the wrapper:**
+- Predictor exits non-zero → wrapper logs the failure and makes no commit.
+- `git push` fails (offline etc.) → non-fatal; the commit stays local and the next successful run pushes everything.
 
-**What can still go wrong (worth checking weekly):**
-- Anthropic cloud IPs blocked by Binance → all runs fail. Look at routine logs.
-- Schema drift if you change `_SNAPSHOT_FEATURES` or `XGBoostDirectionModel` between runs → old rows have NaN for new cols (fine), new code can't load old pickles (problem only if you try to load).
+**What can still go wrong (worth checking weekly — `tail logs/daily_predict.log`):**
+- Laptop off for several days → those bars are skipped (fewer data points, not corruption).
+- Binance rate-limit / outage → that day's run fails; check the log, re-run by hand.
+- Schema drift if you change `_SNAPSHOT_FEATURES` or `XGBoostDirectionModel` → old parquet rows get NaN for new cols (fine); old pickles may not load under new code (only matters if you reload them).
 
 ---
 
-## Controlling the routine
+## Controlling the task
 
-| Action | How |
+All via the Windows **Task Scheduler** GUI (search "Task Scheduler", find `BTC vol-regime daily logger`) or PowerShell:
+
+| Action | How (PowerShell) |
 |---|---|
-| View logs / past runs | https://claude.ai/code/routines/trig_017YH8WA7fpk5nchnzNYNDFs |
-| Run once manually | Hit "Run now" on the dashboard, or `python -m src.pipeline.run_live` locally |
-| Change schedule | Update via dashboard or `RemoteTrigger {action: "update"}` |
-| Disable temporarily | Set `enabled: false` on the routine |
-| Delete entirely | Only via https://claude.ai/code/routines (no API support) |
-| Change prompt / what it does | Update via dashboard or `RemoteTrigger {action: "update"}` |
+| Run once now | `Start-ScheduledTask -TaskName "BTC vol-regime daily logger"` |
+| See last result / next run | `Get-ScheduledTaskInfo -TaskName "BTC vol-regime daily logger"` |
+| Disable temporarily | `Disable-ScheduledTask -TaskName "BTC vol-regime daily logger"` |
+| Re-enable | `Enable-ScheduledTask -TaskName "BTC vol-regime daily logger"` |
+| Change the time | `Set-ScheduledTask` with a new `New-ScheduledTaskTrigger -Daily -At "HH:mm"` |
+| Delete | `Unregister-ScheduledTask -TaskName "BTC vol-regime daily logger"` |
+| Inspect recent output | `Get-Content logs/daily_predict.log -Tail 40` |
+
+Run a prediction manually anytime: `powershell -ExecutionPolicy Bypass -File scripts/daily_predict.ps1`
+
+The disabled cloud routine (`trig_017YH8WA7fpk5nchnzNYNDFs`) is controlled separately at https://claude.ai/code/routines.
 
 ---
 
@@ -172,10 +202,12 @@ Each routine fire does this on Anthropic's cloud:
 
 ## Files in play
 
-- [src/pipeline/run_live.py](src/pipeline/run_live.py) — the daily script
-- [data/live_predictions.parquet](data/live_predictions.parquet) — append-only log (created on first routine fire)
+- [src/pipeline/run_live.py](src/pipeline/run_live.py) — the daily predictor + `--eval`
+- [scripts/daily_predict.ps1](scripts/daily_predict.ps1) — Task Scheduler wrapper (run + commit + push)
+- [data/live_predictions.parquet](data/live_predictions.parquet) — append-only log (first row: 2026-05-22)
 - [data/model_snapshots/](data/model_snapshots/) — pickled models per day
 - [config/settings.yaml](config/settings.yaml) — model + data config
+- `logs/daily_predict.log` — local run log (gitignored)
 
 ## Related findings (in-sample CV results)
 
