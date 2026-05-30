@@ -9,17 +9,16 @@ out-of-sample on truly unseen data.
 
 ---
 
-## ⚡ Status at a glance (last updated 2026-05-23)
+## ⚡ Status at a glance (last updated 2026-05-30)
 
 | Thing | State |
 |---|---|
-| **Daily predictor** | ✅ Running **locally** — Windows Task Scheduler task `BTC vol-regime daily logger`, daily **09:00 IST** |
+| **Daily predictor** | ✅ Running **locally** — task `BTC vol-regime daily logger` via `wscript.exe daily_predict.vbs`, daily **09:00 IST**, console hidden |
 | **Cloud routine** (`trig_017YH8WA7fpk5nchnzNYNDFs`) | ⛔ **Disabled** — broken by Anthropic egress SSL proxy; left disabled, not deleted |
-| **First data point** | 2026-05-22 (P(high_vol)=0.433), logged manually during setup |
-| **First *automatic* run** | 2026-05-24 09:00 IST (not yet confirmed firing unattended) |
-| **First `--eval` worth running** | ~2026-05-29 (needs 7 resolved days) |
+| **Predictions logged** | 7 (bars 2026-05-22 through 2026-05-29) — one gap on 2026-05-28 from a missed run (expected, harmless) |
+| **First `--eval` worth running** | **~2026-06-05** (need 7 resolved days; today only 2 are resolved) |
 | **Where data lands** | `data/live_predictions.parquet` + `data/model_snapshots/`, committed & pushed each run |
-| **Run log** | `logs/daily_predict.log` (local, gitignored) |
+| **Run log** | `logs/daily_predict.log` (UTF-8, local, gitignored) |
 
 **Fast controls:**
 ```powershell
@@ -258,6 +257,14 @@ The disabled cloud routine (`trig_017YH8WA7fpk5nchnzNYNDFs`) is controlled separ
 ## Change log
 
 Newest first. Each entry = what changed, why, and the commit(s).
+
+### 2026-05-30 — Scheduler polish + first sneak-peek eval
+- **Verified 7 days of unattended runs.** Predictions 2026-05-22 through 2026-05-29 logged and pushed; one bar (05-28) skipped because the laptop wasn't reachable that UTC day (the designed harmless-gap mode).
+- **Hidden scheduler window via VBS launcher** — Task Scheduler now invokes `wscript.exe scripts/daily_predict.vbs` instead of `powershell.exe` directly. `powershell.exe -WindowStyle Hidden` still flashed a console on first paint; the `.vbs` Shell.Run with intWindowStyle=0 truly suppresses it. _(commit `24766d2`)_
+- **Log encoding fixed** — `Add-Content -Encoding utf8` on every sink; PS 5.1's default was UTF-16 LE, which made the file read as spaced-out gibberish via Unix tools. Old log was rotated; new entries are UTF-8 + BOM.
+- **Removed pandas deprecation warning** — `pd.Timestamp.utcnow()` -> `Timestamp.now(tz="UTC")` in `run_live.py`; the warning was leaking into the daily log.
+- **ASCII-safe eval output** — replaced em-dash and arrow in `evaluate()` prints; cp1252 console crashed on them during the sneak-peek `--eval`.
+- **Sneak-peek `--eval --min-days 2` ran cleanly** with N=2 resolved (bars 5/22, 5/23). Numbers are noise at that sample size; confirmed the report renders end-to-end. Real eval target: ~2026-06-05.
 
 ### 2026-05-23 — Live validation deployed locally
 - **Decided to run locally, not in the cloud.** Set up the Anthropic-hosted routine first, but its test fire failed: the cloud egress proxy does TLS interception with a self-signed CA, so ccxt/requests reject every HTTPS call (`CERTIFICATE_VERIFY_FAILED`). The only workarounds were trusting the proxy CA (may not exist) or disabling cert verification (would risk ingesting proxy-altered prices and corrupting the validation). Chose local execution over trusted TLS instead. Cloud routine left **disabled**.
