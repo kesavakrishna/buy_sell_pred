@@ -99,7 +99,7 @@ def predict_today(cfg: dict, asset: str) -> dict:
     # still open. Dropping it makes the prediction identical regardless of what
     # time of day the job runs (any run during UTC-day D uses the same closed
     # bar D-1), which is what lets a local scheduler fire at any convenient hour.
-    today_utc = pd.Timestamp.utcnow().normalize().tz_localize(None)
+    today_utc = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
     closed = df[df.index < today_utc]
     if closed.empty:
         raise RuntimeError("No fully-closed bars available to predict from.")
@@ -198,7 +198,7 @@ def evaluate(cfg: dict, asset: str, min_resolved_days: int = 7) -> None:
     log = log.join(actual_vol, how="left")
 
     # Only evaluate rows where the outcome window has closed and vol is known
-    today = pd.Timestamp.utcnow().normalize().tz_localize(None)
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
     cutoff = today - pd.Timedelta(days=_HORIZON)
     resolved = log[log.index <= cutoff].dropna(subset=["actual_future_vol"]).copy()
 
@@ -233,10 +233,10 @@ def evaluate(cfg: dict, asset: str, min_resolved_days: int = 7) -> None:
         bh_sharpe = float("nan")
 
     print(f"\n{'='*60}")
-    print(f"Live Prediction Evaluation — {asset} ({_HORIZON}d horizon)")
+    print(f"Live Prediction Evaluation -- {asset} ({_HORIZON}d horizon)")
     print(f"{'='*60}")
     print(f"Resolved predictions : {len(resolved)}")
-    print(f"Date range           : {resolved.index.min().date()} → {resolved.index.max().date()}")
+    print(f"Date range           : {resolved.index.min().date()} -> {resolved.index.max().date()}")
     print(f"Vol accuracy         : {vol_acc:.1%}")
     print(f"Brier score          : {vol_brier:.4f}")
     print(f"Strategy Sharpe      : {strategy_sharpe:.2f}")

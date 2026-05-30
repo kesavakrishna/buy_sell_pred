@@ -36,7 +36,7 @@ function Log($msg) {
     $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     $line = "$ts  $msg"
     Write-Host $line
-    Add-Content -Path $LogFile -Value $line
+    Add-Content -Path $LogFile -Encoding utf8 -Value $line
 }
 
 Set-Location $RepoRoot
@@ -44,7 +44,7 @@ Log "=== daily_predict start ==="
 
 # 1. Run the predictor. Merge stderr into stdout (single stream) and append to
 #    the log. $LASTEXITCODE still reflects python's real exit code.
-& $Python -m src.pipeline.run_live --asset BTC/USDT 2>&1 | Add-Content -Path $LogFile
+& $Python -m src.pipeline.run_live --asset BTC/USDT 2>&1 | Add-Content -Path $LogFile -Encoding utf8
 $exit = $LASTEXITCODE
 
 if ($exit -ne 0) {
@@ -62,12 +62,12 @@ if ([string]::IsNullOrWhiteSpace($changed)) {
 }
 
 $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-git add data/live_predictions.parquet data/model_snapshots/ 2>&1 | Add-Content -Path $LogFile
-git commit -m "Log daily vol prediction $today" 2>&1 | Add-Content -Path $LogFile
+git add data/live_predictions.parquet data/model_snapshots/ 2>&1 | Add-Content -Path $LogFile -Encoding utf8
+git commit -m "Log daily vol prediction $today" 2>&1 | Add-Content -Path $LogFile -Encoding utf8
 Log "Committed prediction for $today."
 
 # 3. Best-effort push. A failure here is non-fatal: local parquet persists.
-git push origin main 2>&1 | Add-Content -Path $LogFile
+git push origin main 2>&1 | Add-Content -Path $LogFile -Encoding utf8
 if ($LASTEXITCODE -eq 0) {
     Log "Pushed to origin/main."
 } else {
